@@ -1,0 +1,1 @@
+nix-shell -p armadillo eigen3_3 gcc --command "echo $NIX_CFLAGS_COMPILE; g++ $NIX_CFLAGS_COMPILE src/shmm.cpp -o shmm"
