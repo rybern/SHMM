@@ -94,8 +94,6 @@ notes:
 
 int main(int argc, char *argv[])
 {
-  cerr << "Starting SHMM" << endl;
-
   bool verbose = false;
   char* trans_filepath = argv[1];
   char* emissions_filepath = argv[2];
@@ -103,8 +101,12 @@ int main(int argc, char *argv[])
 
   std::vector<int> permutation;
   if (argc > 4) {
+    cerr << "Starting SHMM" << endl;
     char* permutation_filepath = argv[4];
     permutation = load_emission_permutation(permutation_filepath);
+  } else if (argc < 4) {
+    cerr << "Usage: " << argv[0] << " TRANS.st EMISSIONS.csv OUTPUT.csv [PERMUTATION.CSV]" << endl;
+    exit(1);
   }
 
   std::vector<T> trans_list;
