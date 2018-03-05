@@ -106,7 +106,7 @@ withTripleArray triples = withArray (map (\(r,c,v) -> buildDTriple r c v) triple
 withEmissions :: Emissions -> (Ptr (Ptr Double) -> IO b) -> IO b
 withEmissions emissions action = do
   ptrVec <- Vector.mapM (flip Storable.unsafeWith return . Storable.convert) emissions
-  let storablePtrVec = Storable.convert $ ptrVec
+  let storablePtrVec = Storable.convert ptrVec
   Storable.unsafeWith storablePtrVec action
 
 
@@ -128,11 +128,11 @@ triples = [
   , (2, 2, 0.7)
   , (2, 3, 0.5)
   ]
-permutation = [0, 1]
+permutation = [0, 1, 2]
 
 main :: IO ()
 main = do
   posterior <- shmm n_states triples emissions permutation
-  putStrLn "Final post:"
+  putStrLn "Final post: "
   forM_ posterior $ \row ->
     print row

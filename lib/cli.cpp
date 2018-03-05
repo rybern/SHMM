@@ -232,7 +232,8 @@ int shmm_cli(int argc, char *argv[])
       cerr << " " << trans.row(i);
   }
 
-  forward_backward ( initial, trans, emissions, &posterior, verbose );
+  // this is sending the already permuted emissions, should be sending the raw emissions each of length n_obs.
+  forward_backward ( initial, trans, emissions, &posterior, n_states, permutation.data(), verbose );
 
   if (verbose)
     cerr << "posterior: " << endl << posterior << endl;

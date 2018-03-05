@@ -24,6 +24,7 @@ void forward_backward ( SparseVector<double> initial,
                         SparseMatrix<double> trans,
                         vector<VectorXd> emissions,
                         Map<MatrixXd> *posterior,
+                        int n_events, int *permutation_,
                         bool verbose);
 
 struct DTriple {
@@ -36,7 +37,7 @@ void addTriples(int n_triples, DTriple *triples, SparseMatrix<double> *trans, Sp
 
 int shmm(int n_triples, DTriple *triples,
          int n_states, int n_obs, double **emissions_aptr,
-         int n_events, int *permutation_,
+         int n_events, int *permutation,
          double *posterior_arr ) {
   cerr << "params: " << "n_triples=" << n_triples << ", n_states=" << n_states << ", n_obs=" << n_obs << ", n_events=" << n_events << endl;
   SparseMatrix<double> trans(n_states+1, n_states+1);
@@ -49,7 +50,7 @@ int shmm(int n_triples, DTriple *triples,
   cerr << "init: " << initial;
 
   const char* emissions_filepath = "test/emissions.csv";
-  std::vector<int> permutation;
+  //std::vector<int> permutation;
   //permutation.assign(permutation_, permutation_ + n_states);
   //cerr << "perm: " << permutation;
   //vector<VectorXd> emissions = load_emissions(emissions_filepath, permutation);
@@ -65,7 +66,7 @@ int shmm(int n_triples, DTriple *triples,
 
   Map<MatrixXd> posterior(posterior_arr, n_events, n_states + 1);
 
-  forward_backward ( initial, trans, emissions, &posterior, true );
+  forward_backward ( initial, trans, emissions, &posterior, n_events, permutation, true );
 
   cerr << "posterior: " << endl << posterior << endl;
 }
@@ -111,6 +112,7 @@ void forward_backward ( SparseVector<double> initial,
                         SparseMatrix<double> trans,
                         vector<VectorXd> emissions,
                         Map<MatrixXd> *posterior,
+                        int n_states, int *permutation,
                         bool verbose) {
 
   if (verbose) {
@@ -119,7 +121,8 @@ void forward_backward ( SparseVector<double> initial,
       cerr << " " << trans.row(i);
   }
 
-  int n_states = posterior->cols();
+  //int n_states = posterior->cols();
+  int n_obs = emissions[0].size();
   int n_events = emissions.size();
 
   if (verbose) {
@@ -137,13 +140,14 @@ void forward_backward ( SparseVector<double> initial,
       cerr << " " << emissions[i].transpose() << endl;
   }
 
-  assert(emissions[0].size() == n_states);
+  //assert(emissions[0].size() == n_states);
 
   std::vector<SparseVector<double>> forward(n_events+1);
   forward[0] = initial;
   for (int i = 1; i <= n_events; i ++) {
-    forward[i] = (trans.transpose() * forward[i-1]).cwiseProduct(emissions[i-1]);
-    forward[i] /= forward[i].sum();
+    SparseVector<double> fromPrev = trans.transpose() * forward[i-1];
+    SparseVector<double> withEms = fromPrev.cwiseProduct(emissions[i-1]);
+    forward[i] = withEms / withEms.sum();
     if(forward[i].sum() == 0)
       cerr << "forward sum zero at row" << i << endl;
   }
@@ -157,6 +161,9 @@ void forward_backward ( SparseVector<double> initial,
   std::vector<SparseVector<double>> backward(n_events+1);
   backward[n_events] = MatrixXd::Ones(n_states,1).col(0).sparseView();
   for (int i = n_events - 1; i >= 0; i --) {
+    //SparseVector<double> fromNext = backward[i+1];
+    //SparseVector<double> withEms = fromNext.cwiseProduct(emissions[i]);
+    //backward[i] = trans * withEms;
     backward[i] = (trans * backward[i+1].cwiseProduct(emissions[i]));
     backward[i] /= backward[i].sum();
     if(backward[i].sum() == 0)
