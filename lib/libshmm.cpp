@@ -149,12 +149,8 @@ void forward_backward ( SparseVector<double> initial,
     fromPrev = trans.transpose() * forward[i-1];
     for (SparseVector<double>::InnerIterator iter(fromPrev); iter; ++iter) {
       fromPrev.coeffRef(iter.index()) *= emissions[i-1][permutation[iter.index()]];
-      //fromPrev.coeffRef(iter.index()) *= emissions[permutation[i-1]][iter.index()];
     }
-    //SparseVector<double> withEms = fromPrev.cwiseProduct(emissions[i-1]);
     forward[i] = fromPrev / fromPrev.sum();
-    if(forward[i].sum() == 0)
-      cerr << "forward sum zero at row" << i << endl;
   }
 
   if (verbose) {
@@ -164,6 +160,7 @@ void forward_backward ( SparseVector<double> initial,
   }
 
   std::vector<SparseVector<double>> backward(n_events+1);
+  VectorXd row;
   backward[n_events] = MatrixXd::Ones(n_states,1).col(0).sparseView();
   SparseVector<double> fromNext;
   for (int i = n_events - 1; i >= 0; i --) {
@@ -171,12 +168,13 @@ void forward_backward ( SparseVector<double> initial,
     for (SparseVector<double>::InnerIterator iter(fromNext); iter; ++iter) {
       fromNext.coeffRef(iter.index()) *= emissions[i][permutation[iter.index()]];
     }
-    //SparseVector<double> withEms = fromNext.cwiseProduct(emissions[i]);
     backward[i] = trans * fromNext;
-    //backward[i] = (trans * backward[i+1].cwiseProduct(emissions[i]));
     backward[i] /= backward[i].sum();
-    if(backward[i].sum() == 0)
-      cerr << "backward sum zero at row" << i << endl;
+
+    if(i > 0) {
+      row = forward[i].cwiseProduct(backward[i]);
+      posterior->row(i-1) = row / row.sum();
+    }
   }
 
   if (verbose) {
@@ -186,10 +184,7 @@ void forward_backward ( SparseVector<double> initial,
   }
 
   // use -1 to avoid reporting the end token
-  for (int i = 0; i < n_events-1; i ++) {
+  //for (int i = 1; i < n_events; i ++) {
     //SparseVector<double> row = forward[i].cwiseProduct(backward[i]);
-    VectorXd row = forward[i+1].cwiseProduct(backward[i+1]);
-    double s = row.sum();
-    posterior->row(i) = row / s;
-  }
+  //}
 }
