@@ -30,7 +30,28 @@ to do:
   - general todo: investigate truncating 0s. that might be a vital knob.
 -}
 
-shmm ::
+shmmSummed ::
+  -- The number of states, not including tokens
+  Int ->
+  -- Triples representing the transition distribution.
+  -- Index 0 is reserved for the start token, other states start from 1.
+  -- Column can go up to n_states+1, which represents the end token.
+  [(Int, Int, Double)] ->
+  -- Vector of observation distributions, one for each time point.
+  -- Each distribution is n_obs long, which can be less than n_states.
+  Emissions ->
+  -- Vector to encode the permutation of states -> obervations.
+  -- n_states long with values 0 through n_obs-1.
+  Vector Int ->
+  -- Returns a vector of posterior distributions over states, one for each event.
+  -- n_events vectors of n_states each.
+  IO (Vector Double)
+shmmSummed n_states' triples emissions permutations' = do
+  postFrozen <- shmm n_states' triples emissions permutations' True
+  return . Vector.init . Vector.convert $ postFrozen
+
+
+shmmFull ::
   -- The number of states, not including tokens
   Int ->
   -- Triples representing the transition distribution.
@@ -46,20 +67,53 @@ shmm ::
   -- Returns a vector of posterior distributions over states, one for each event.
   -- n_events vectors of n_states each.
   IO Emissions
-shmm n_states' triples emissions permutations' = do
+shmmFull n_states' triples emissions permutations' = do
+  let n_events' = Vector.length emissions
+  -- post is a contiguous mutable vector, convert it to an immutable 2D vector
+  postFrozen <- shmm n_states' triples emissions permutations' False
+  let postEmissions = flip Vector.map [0 .. (n_states'-1)] $ \ix ->
+        Vector.convert $ Storable.slice (n_events' * ix) n_events' postFrozen
+
+  --not ideal, not sure if it's avoidable - Eigen uses col-major
+  let postEmissions' = flip Vector.map [0..(n_events'-1)] $ \ix -> Vector.map (Vector.! ix) postEmissions
+
+  return postEmissions'
+
+
+shmm ::
+  -- The number of states, not including tokens
+  Int ->
+  -- Triples representing the transition distribution.
+  -- Index 0 is reserved for the start token, other states start from 1.
+  -- Column can go up to n_states+1, which represents the end token.
+  [(Int, Int, Double)] ->
+  -- Vector of observation distributions, one for each time point.
+  -- Each distribution is n_obs long, which can be less than n_states.
+  Emissions ->
+  -- Vector to encode the permutation of states -> obervations.
+  -- n_states long with values 0 through n_obs-1.
+  Vector Int ->
+  -- Whether or not to sum up the posteriors event-wise, returning a state vector
+  Bool ->
+  -- Returns a vector of posterior distributions over states, one for each event.
+  -- n_events vectors of n_states each.
+  IO (Storable.Vector Double)
+shmm n_states' triples emissions permutations' summed' = do
   let n_triples = fromIntegral (length triples)
       n_states = fromIntegral n_states'
       n_obs = fromIntegral (Vector.length (Vector.head emissions))
       n_events' = Vector.length emissions
       n_events = fromIntegral (Vector.length emissions)
       permutations = Vector.map fromIntegral permutations'
-      summed = fromIntegral 0
+      summed = fromIntegral $ if summed' then 1 else 0
 
       --not ideal - where is best to add the 0s?
       emissions' = Vector.map (flip Vector.snoc 0) emissions
 
   -- initialize memory for the posterior, so we know where to read
-  post <- Mutable.unsafeNew (n_events' * (n_states' + 1))
+  post <- if summed'
+    then Mutable.unsafeNew (n_states' + 1)
+    else Mutable.unsafeNew (n_events' * (n_states' + 1))
 
   -- call the C++ function, with temporary Ptrs to avoid a space leak
   withTripleArray triples $ \tsPtr ->
@@ -70,13 +124,7 @@ shmm n_states' triples emissions permutations' = do
 
   -- post is a contiguous mutable vector, convert it to an immutable 2D vector
   postFrozen <- Storable.freeze post
-  let postEmissions = flip Vector.map [0 .. (n_states'-1)] $ \ix ->
-        Vector.convert $ Storable.slice (n_events' * ix) n_events' postFrozen
-
-  --not ideal, not sure if it's avoidable - Eigen uses col-major
-  let postEmissions' = flip Vector.map [0..(n_events'-1)] $ \ix -> Vector.map (Vector.! ix) postEmissions
-
-  return postEmissions'
+  return postFrozen
 
 -- C++ signature:
 -- int shmm(int n_triples, DTriple *triples, int n_states, int n_obs, double **emissions_aptr, int n_events, int *permutation_, double *posterior_arr )
@@ -133,7 +181,12 @@ permutation = [0, 1, 2]
 
 main :: IO ()
 main = do
-  posterior <- shmm n_states triples emissions permutation
+  summed <- shmmSummed n_states triples emissions permutation
+  full <- shmmFull n_states triples emissions permutation
+  let fullSummed' n = Vector.sum $ Vector.map (Vector.! n) full
+      fullSummed = Vector.map fullSummed' [0..(Vector.length (Vector.head full) - 1)]
   putStrLn "Final post:"
-  forM_ posterior $ \row ->
-    print row
+  print summed
+  print fullSummed
+  --forM_ posterior $ \row ->
+    --print row

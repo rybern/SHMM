@@ -178,7 +178,12 @@ void forward_backward ( SparseVector<double> initial,
 
     if(i > 0) {
       row = forward[i].cwiseProduct(backward);
-      posteriorFull->row(i-1) = row / row.sum();
+      if (posteriorFull != NULL) {
+        posteriorFull->row(i-1) = row / row.sum();
+      }
+      else if (posteriorSummed != NULL) {
+        *posteriorSummed += row / row.sum();
+      }
     }
   }
 
