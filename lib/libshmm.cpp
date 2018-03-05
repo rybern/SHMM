@@ -159,28 +159,19 @@ void forward_backward ( SparseVector<double> initial,
       cerr << " " << forward[i];
   }
 
-  std::vector<SparseVector<double>> backward(n_events+1);
   VectorXd row;
-  backward[n_events] = MatrixXd::Ones(n_states,1).col(0).sparseView();
-  SparseVector<double> fromNext;
+  SparseVector<double> backward = MatrixXd::Ones(n_states,1).col(0).sparseView();
   for (int i = n_events - 1; i >= 0; i --) {
-    fromNext = backward[i+1];
-    for (SparseVector<double>::InnerIterator iter(fromNext); iter; ++iter) {
-      fromNext.coeffRef(iter.index()) *= emissions[i][permutation[iter.index()]];
+    for (SparseVector<double>::InnerIterator iter(backward); iter; ++iter) {
+      backward.coeffRef(iter.index()) *= emissions[i][permutation[iter.index()]];
     }
-    backward[i] = trans * fromNext;
-    backward[i] /= backward[i].sum();
+    backward = trans * backward;
+    backward /= backward.sum();
 
     if(i > 0) {
-      row = forward[i].cwiseProduct(backward[i]);
+      row = forward[i].cwiseProduct(backward);
       posterior->row(i-1) = row / row.sum();
     }
-  }
-
-  if (verbose) {
-    cerr << "backward: " << endl;
-    for (int i = 0; i < backward.size(); i++)
-      cerr << " " << backward[i];
   }
 
   // use -1 to avoid reporting the end token
