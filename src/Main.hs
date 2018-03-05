@@ -46,12 +46,13 @@ shmm ::
   -- Returns a vector of posterior distributions over states, one for each event.
   -- n_events vectors of n_states each.
   IO Emissions
-shmm n_states' triples emissions permutations = do
+shmm n_states' triples emissions permutations' = do
   let n_triples = fromIntegral (length triples)
       n_states = fromIntegral n_states'
       n_obs = fromIntegral (Vector.length (Vector.head emissions))
       n_events' = Vector.length emissions
       n_events = fromIntegral (Vector.length emissions)
+      permutations = Vector.map fromIntegral permutations'
 
       --not ideal - where is best to add the 0s?
       emissions' = Vector.map (flip Vector.snoc 0) emissions
@@ -79,7 +80,7 @@ shmm n_states' triples emissions permutations = do
 -- C++ signature:
 -- int shmm(int n_triples, DTriple *triples, int n_states, int n_obs, double **emissions_aptr, int n_events, int *permutation_, double *posterior_arr )
 foreign import ccall "_Z4shmmiP7DTripleiiPPdiPiS1_"
-  c_shmm :: CInt -> Ptr DTriple -> CInt -> CInt -> Ptr (Ptr Double) -> CInt -> Ptr Int -> Ptr Double -> IO CInt
+  c_shmm :: CInt -> Ptr DTriple -> CInt -> CInt -> Ptr (Ptr Double) -> CInt -> Ptr CInt -> Ptr Double -> IO CInt
 
 data DTriple = DTriple CInt CInt CDouble
 type Emissions = Vector (Vector Double)
@@ -132,6 +133,6 @@ permutation = [0, 1, 2]
 main :: IO ()
 main = do
   posterior <- shmm n_states triples emissions permutation
-  putStrLn "Final post:"
+  putStrLn "Final post: "
   forM_ posterior $ \row ->
     print row

@@ -48,6 +48,7 @@ int shmm(int n_triples, DTriple *triples,
   for (int i = 0; i < trans.rows(); i++)
     cerr << " " << trans.row(i);
   cerr << "init: " << initial;
+  cerr << "permutation: " << permutation[0] << permutation[1] << permutation[2] << endl;
 
   const char* emissions_filepath = "test/emissions.csv";
   //std::vector<int> permutation;
@@ -141,25 +142,14 @@ void forward_backward ( SparseVector<double> initial,
 
   //assert(emissions[0].size() == n_states);
 
-
-  double arr[] = {0, 1, 2, 0, 3, 4, 0};
-  auto v = Map<const VectorXd>(arr, 7);
-  SparseVector<double> sv = v.sparseView();
-  cerr << "iterate:" << sv << endl;
-  for (SparseVector<double>::InnerIterator i(sv); i; ++i) {
-    cerr << "iterate " << i.value() << " at " << i.index() << endl;
-    sv.coeffRef(i.index()) *= 2;
-  }
-  cerr << "iterated:" << sv << endl;
-
-
   std::vector<SparseVector<double>> forward(n_events+1);
   forward[0] = initial;
   SparseVector<double> fromPrev;
   for (int i = 1; i <= n_events; i ++) {
     fromPrev = trans.transpose() * forward[i-1];
     for (SparseVector<double>::InnerIterator iter(fromPrev); iter; ++iter) {
-      fromPrev.coeffRef(iter.index()) *= emissions[i-1][iter.index()];
+      fromPrev.coeffRef(iter.index()) *= emissions[i-1][permutation[iter.index()]];
+      //fromPrev.coeffRef(iter.index()) *= emissions[permutation[i-1]][iter.index()];
     }
     //SparseVector<double> withEms = fromPrev.cwiseProduct(emissions[i-1]);
     forward[i] = fromPrev / fromPrev.sum();
@@ -179,7 +169,7 @@ void forward_backward ( SparseVector<double> initial,
   for (int i = n_events - 1; i >= 0; i --) {
     fromNext = backward[i+1];
     for (SparseVector<double>::InnerIterator iter(fromNext); iter; ++iter) {
-      fromNext.coeffRef(iter.index()) *= emissions[i][iter.index()];
+      fromNext.coeffRef(iter.index()) *= emissions[i][permutation[iter.index()]];
     }
     //SparseVector<double> withEms = fromNext.cwiseProduct(emissions[i]);
     backward[i] = trans * fromNext;
