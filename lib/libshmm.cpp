@@ -106,7 +106,6 @@ void addTriples(int n_triples, DTriple *triples, SparseMatrix<double> *trans, Sp
   trans_list.push_back(T(max_row+1, max_col, 1.0));
   trans->setFromTriplets(trans_list.begin(), trans_list.end());
 }
-// trans dies in transit
 
 void forward_backward ( SparseVector<double> initial,
                         SparseMatrix<double> trans,
@@ -142,12 +141,28 @@ void forward_backward ( SparseVector<double> initial,
 
   //assert(emissions[0].size() == n_states);
 
+
+  double arr[] = {0, 1, 2, 0, 3, 4, 0};
+  auto v = Map<const VectorXd>(arr, 7);
+  SparseVector<double> sv = v.sparseView();
+  cerr << "iterate:" << sv << endl;
+  for (SparseVector<double>::InnerIterator i(sv); i; ++i) {
+    cerr << "iterate " << i.value() << " at " << i.index() << endl;
+    sv.coeffRef(i.index()) *= 2;
+  }
+  cerr << "iterated:" << sv << endl;
+
+
   std::vector<SparseVector<double>> forward(n_events+1);
   forward[0] = initial;
+  SparseVector<double> fromPrev;
   for (int i = 1; i <= n_events; i ++) {
-    SparseVector<double> fromPrev = trans.transpose() * forward[i-1];
-    SparseVector<double> withEms = fromPrev.cwiseProduct(emissions[i-1]);
-    forward[i] = withEms / withEms.sum();
+    fromPrev = trans.transpose() * forward[i-1];
+    for (SparseVector<double>::InnerIterator iter(fromPrev); iter; ++iter) {
+      fromPrev.coeffRef(iter.index()) *= emissions[i-1][iter.index()];
+    }
+    //SparseVector<double> withEms = fromPrev.cwiseProduct(emissions[i-1]);
+    forward[i] = fromPrev / fromPrev.sum();
     if(forward[i].sum() == 0)
       cerr << "forward sum zero at row" << i << endl;
   }
@@ -160,11 +175,15 @@ void forward_backward ( SparseVector<double> initial,
 
   std::vector<SparseVector<double>> backward(n_events+1);
   backward[n_events] = MatrixXd::Ones(n_states,1).col(0).sparseView();
+  SparseVector<double> fromNext;
   for (int i = n_events - 1; i >= 0; i --) {
-    //SparseVector<double> fromNext = backward[i+1];
+    fromNext = backward[i+1];
+    for (SparseVector<double>::InnerIterator iter(fromNext); iter; ++iter) {
+      fromNext.coeffRef(iter.index()) *= emissions[i][iter.index()];
+    }
     //SparseVector<double> withEms = fromNext.cwiseProduct(emissions[i]);
-    //backward[i] = trans * withEms;
-    backward[i] = (trans * backward[i+1].cwiseProduct(emissions[i]));
+    backward[i] = trans * fromNext;
+    //backward[i] = (trans * backward[i+1].cwiseProduct(emissions[i]));
     backward[i] /= backward[i].sum();
     if(backward[i].sum() == 0)
       cerr << "backward sum zero at row" << i << endl;

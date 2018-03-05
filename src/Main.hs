@@ -109,7 +109,6 @@ withEmissions emissions action = do
   let storablePtrVec = Storable.convert ptrVec
   Storable.unsafeWith storablePtrVec action
 
-
 n_states = 2
 emissions = [
     [0.9, 0.2]
