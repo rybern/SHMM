@@ -23,7 +23,8 @@ notes:
 void forward_backward ( SparseVector<double> initial,
                         SparseMatrix<double> trans,
                         vector<VectorXd> emissions,
-                        Map<MatrixXd> *posterior,
+                        Map<MatrixXd> *posteriorFull,
+                        Map<VectorXd> *posteriorSummed,
                         int n_events, int *permutation_,
                         bool verbose);
 
@@ -38,6 +39,7 @@ void addTriples(int n_triples, DTriple *triples, SparseMatrix<double> *trans, Sp
 int shmm(int n_triples, DTriple *triples,
          int n_states, int n_obs, double **emissions_aptr,
          int n_events, int *permutation,
+         bool sum,
          double *posterior_arr ) {
   cerr << "params: " << "n_triples=" << n_triples << ", n_states=" << n_states << ", n_obs=" << n_obs << ", n_events=" << n_events << endl;
   SparseMatrix<double> trans(n_states+1, n_states+1);
@@ -65,11 +67,16 @@ int shmm(int n_triples, DTriple *triples,
   end_emissions.coeffRef(n_obs) = 1.0;
   emissions.push_back(end_emissions);
 
-  Map<MatrixXd> posterior(posterior_arr, n_events, n_states + 1);
+  if (sum) {
+    Map<VectorXd> posteriorSummed(posterior_arr, n_states + 1);
+    forward_backward ( initial, trans, emissions, NULL, &posteriorSummed, n_states+1, permutation, true );
+    cerr << "posterior: " << endl << posteriorSummed << endl;
+  } else {
+    Map<MatrixXd> posteriorFull(posterior_arr, n_events, n_states + 1);
+    forward_backward ( initial, trans, emissions, &posteriorFull, NULL, n_states+1, permutation, true );
+    cerr << "posterior: " << endl << posteriorFull << endl;
+  }
 
-  forward_backward ( initial, trans, emissions, &posterior, n_states+1, permutation, true );
-
-  cerr << "posterior: " << endl << posterior << endl;
 }
 
 // this could definitely be done better.
@@ -111,7 +118,8 @@ void addTriples(int n_triples, DTriple *triples, SparseMatrix<double> *trans, Sp
 void forward_backward ( SparseVector<double> initial,
                         SparseMatrix<double> trans,
                         vector<VectorXd> emissions,
-                        Map<MatrixXd> *posterior,
+                        Map<MatrixXd> *posteriorFull,
+                        Map<VectorXd> *posteriorSummed,
                         int n_states, int *permutation,
                         bool verbose) {
 
@@ -170,7 +178,7 @@ void forward_backward ( SparseVector<double> initial,
 
     if(i > 0) {
       row = forward[i].cwiseProduct(backward);
-      posterior->row(i-1) = row / row.sum();
+      posteriorFull->row(i-1) = row / row.sum();
     }
   }
 

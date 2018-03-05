@@ -53,6 +53,7 @@ shmm n_states' triples emissions permutations' = do
       n_events' = Vector.length emissions
       n_events = fromIntegral (Vector.length emissions)
       permutations = Vector.map fromIntegral permutations'
+      summed = fromIntegral 0
 
       --not ideal - where is best to add the 0s?
       emissions' = Vector.map (flip Vector.snoc 0) emissions
@@ -65,7 +66,7 @@ shmm n_states' triples emissions permutations' = do
     withEmissions emissions' $ \esPtr ->
       Storable.unsafeWith (Storable.convert permutations) $ \permPtr ->
         Mutable.unsafeWith post $ \postPtr ->
-          c_shmm n_triples tsPtr n_states n_obs esPtr n_events permPtr postPtr
+          c_shmm n_triples tsPtr n_states n_obs esPtr n_events permPtr summed postPtr
 
   -- post is a contiguous mutable vector, convert it to an immutable 2D vector
   postFrozen <- Storable.freeze post
@@ -79,8 +80,8 @@ shmm n_states' triples emissions permutations' = do
 
 -- C++ signature:
 -- int shmm(int n_triples, DTriple *triples, int n_states, int n_obs, double **emissions_aptr, int n_events, int *permutation_, double *posterior_arr )
-foreign import ccall "_Z4shmmiP7DTripleiiPPdiPiS1_"
-  c_shmm :: CInt -> Ptr DTriple -> CInt -> CInt -> Ptr (Ptr Double) -> CInt -> Ptr CInt -> Ptr Double -> IO CInt
+foreign import ccall "_Z4shmmiP7DTripleiiPPdiPibS1_"
+  c_shmm :: CInt -> Ptr DTriple -> CInt -> CInt -> Ptr (Ptr Double) -> CInt -> Ptr CInt -> CUChar -> Ptr Double -> IO CInt
 
 data DTriple = DTriple CInt CInt CDouble
 type Emissions = Vector (Vector Double)
