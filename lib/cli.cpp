@@ -1,17 +1,77 @@
-#include <eigen3/Eigen/Dense>
-#include <eigen3/Eigen/Sparse>
-#include <iostream>
-#include <fstream>
-#include <sstream>
-#include <string>
-#include <armadillo>
-#include <assert.h>
+#include "libshmm.cpp"
 
-using namespace Eigen;
-using namespace std;
+/*
+  non-continuous memory for emissions
+  n_events - 1
+  add row, col to emissions?
+  handle permutation
+ */
 
-typedef Eigen::Triplet<double> T;
+int main(int argc, char** argv) {
+  int n_states = 2;
+  int n_events = 5;
+  int n_obs = 2;
+  double emissions_[n_states][n_obs + 1] = {
+    {0.9, 0.2, 0},
+    {0.9, 0.2, 0},
+    {0.1, 0.9, 0},
+    {0.9, 0.2, 0},
+    {0.9, 0.2, 0}
+  };
+  double* emissions[n_obs + 1];
+  for (int i = 0; i < n_events; i++)
+    emissions[i] = &emissions_[i][0];
 
+  int n_triples = 8;
+  DTriple triples[n_triples] = {
+    {0, 1, 0.5},
+    {0, 2, 0.5},
+    {1, 1, 0.7},
+    {1, 2, 0.3},
+    {1, 3, 0.5},
+    {2, 1, 0.3},
+    {2, 2, 0.7},
+    {2, 3, 0.5}
+  };
+  int permutation[n_states] = {0, 1};
+  double posterior_arr[n_events * (n_states + 1)];
+  shmm(n_triples, triples,
+       n_states, n_obs, emissions,
+       n_events, permutation,
+       posterior_arr);
+
+  for (int i=0; i< n_events * (n_states + 1); i++)
+    cerr << "posterior array[" << i << "]: " << posterior_arr[i] << endl;
+
+  //shmm_cli(argc, argv);
+}
+
+/*
+int n_states = 3;
+int n_events = 6;
+int n_obs = 3;
+double emissions[n_states][n_obs] = {
+  {0.9, 0.2, 0.0},
+  {0.9, 0.2, 0.0},
+  {0.1, 0.9, 0.0},
+  {0.9, 0.2, 0.0},
+  {0.9, 0.2, 0.0},
+  {0.0, 0.0, 1.0}
+};
+int n_triples = 8;
+DTriple triples[n_triples] = {
+  {0, 1, 0.5},
+  {0, 2, 0.5},
+  {1, 1, 0.7},
+  {1, 2, 0.3},
+  {1, 3, 0.5},
+  {2, 1, 0.3},
+  {2, 2, 0.7},
+  {2, 3, 0.5}
+};
+int permutation[1];
+double posterior_arr[(n_events - 1) * n_states];
+*/
 template<typename M>
 M load_csv (const std::string & path) {
   std::ifstream indata;
@@ -83,23 +143,14 @@ std::vector<VectorXd> load_emissions (const std::string & path, std::vector<int>
   return row_vec;
 }
 
-/*
-notes:
-  reusing emission columns:
-    permutation matrix
-      doesn't store, but can't grow matrix
-    map
-      creates new view of existing data, not sure if repeats work
- */
-
-int main(int argc, char *argv[])
+int shmm_cli(int argc, char *argv[])
 {
   bool verbose = false;
   char* trans_filepath = argv[1];
   char* emissions_filepath = argv[2];
   char* posterior_filepath = argv[3];
-
   std::vector<int> permutation;
+
   if (argc > 4) {
     cerr << "Starting SHMM" << endl;
     char* permutation_filepath = argv[4];
@@ -149,8 +200,10 @@ int main(int argc, char *argv[])
     if (c > max_col)
       max_col = c;
   }
+
   cerr << "max_row" << max_row << "max_col" << max_col << endl;
   assert(max_row + 1 == max_col);
+
   int n_states = max_col + 1;
 
   trans_list.push_back(T(max_row+1, max_col, 1.0));
@@ -158,77 +211,29 @@ int main(int argc, char *argv[])
   SparseMatrix<double> trans(n_states, n_states);
   trans.setFromTriplets(trans_list.begin(), trans_list.end());
 
-  cerr << "n states: " << n_states << endl;
-  if (verbose) {
-    cerr << "trans: " << endl;
-    for (int i = 0; i < trans.rows(); i++)
-      cerr << " " << trans.row(i);
-  }
-
   SparseVector<double> initial(n_states);
   for(std::vector<T>::iterator it = initial_list.begin(); it != initial_list.end(); ++it)
     initial.insert(it->col()) = it->value();
   initial /= initial.sum();
-  if (verbose) {
-    cerr << "initial: " << endl << initial << endl;
-  }
 
   //initial = initial.transpose();
 
   //MatrixXd emissions = load_csv<MatrixXd>(emissions_filepath);
   vector<VectorXd> emissions = load_emissions(emissions_filepath, permutation);
   int n_events = emissions.size();
-
-  cerr << "n emissions[0]: " << emissions[0].size() << endl;
-  cerr << "n events: " << n_events << endl;
-
-  if (verbose) {
-    cerr << "emissions: " << endl;
-    for (int i = 0; i < emissions.size(); i++)
-      cerr << " " << emissions[i].transpose() << endl;
-  }
-
-
-  assert(emissions[0].size() == n_states);
-
-  std::vector<SparseVector<double>> forward(n_events+1);
-  forward[0] = initial;
-  for (int i = 1; i <= n_events; i ++) {
-    forward[i] = (trans.transpose() * forward[i-1]).cwiseProduct(emissions[i-1]);
-    forward[i] /= forward[i].sum();
-    if(forward[i].sum() == 0)
-      cerr << "forward sum zero at row" << i << endl;
-  }
+  double posterior_arr[(n_events-1) * n_states];
+  Map<MatrixXd> posterior(posterior_arr, n_events-1, n_states);
+  //MatrixXd posterior(n_events-1, n_states);
 
   if (verbose) {
-    cerr << "forward: " << endl;
-    for (int i = 0; i < forward.size(); i++)
-      cerr << " " << forward[i];
+    // cerr << "trans: " << endl << trans.row(0) << endl;
+    cerr << "trans(" << trans.rows() << ", " << trans.cols() << "):" << endl;
+    for (int i = 0; i < trans.rows(); i++)
+      cerr << " " << trans.row(i);
   }
 
-  std::vector<SparseVector<double>> backward(n_events+1);
-  backward[n_events] = MatrixXd::Ones(n_states,1).col(0).sparseView();
-  for (int i = n_events - 1; i >= 0; i --) {
-    backward[i] = (trans * backward[i+1].cwiseProduct(emissions[i]));
-    backward[i] /= backward[i].sum();
-    if(backward[i].sum() == 0)
-      cerr << "backward sum zero at row" << i << endl;
-  }
+  forward_backward ( initial, trans, emissions, &posterior, verbose );
 
-  if (verbose) {
-    cerr << "backward: " << endl;
-    for (int i = 0; i < backward.size(); i++)
-      cerr << " " << backward[i];
-  }
-
-  // use -1 to avoid reporting the end token
-  MatrixXd posterior(n_events-1, n_states);
-  for (int i = 0; i < n_events-1; i ++) {
-    //SparseVector<double> row = forward[i].cwiseProduct(backward[i]);
-    VectorXd row = forward[i+1].cwiseProduct(backward[i+1]);
-    double s = row.sum();
-    posterior.row(i) = row / s;
-  }
   if (verbose)
     cerr << "posterior: " << endl << posterior << endl;
 
@@ -237,21 +242,3 @@ int main(int argc, char *argv[])
   posterior_file << posterior.format(CSVFormat);
 }
 
-/*
-  std::vector<SparseVector<double>> posterior(n_events);
-  for (int i = 0; i < n_events; i ++) {
-  //SparseVector<double> row = forward[i].cwiseProduct(backward[i]);
-  posterior[i] = forward[i].cwiseProduct(backward[i]);
-  posterior[i] /= posterior[i].sum();
-  }
-
-  cerr << "posterior: " << endl;
-  for (int i = 0; i < posterior.size(); i++)
-  cerr << " " << posterior[i];
-
-  const static IOFormat CSVFormat(StreamPrecision, DontAlignCols, ",", "\n");
-  ofstream posterior_file(posterior_filepath);
-  for (int i = 0; i < posterior.size(); i++)
-  posterior_file << posterior[i].format(CSVFormat);
-  //posterior_file << posterior.format(CSVFormat);
-  */
