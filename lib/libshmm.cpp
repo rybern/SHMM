@@ -4,7 +4,6 @@
 #include <fstream>
 #include <sstream>
 #include <string>
-#include <armadillo>
 #include <assert.h>
 
 using namespace Eigen;

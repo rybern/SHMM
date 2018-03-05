@@ -8,3 +8,6 @@ extra-deps: [ ]
 flags: {}
 
 extra-package-dbs: []
+
+nix:
+  packages: [gcc, binutils, ncurses, eigen3_3]
