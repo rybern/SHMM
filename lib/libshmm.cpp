@@ -66,7 +66,7 @@ int shmm(int n_triples, DTriple *triples,
 
   Map<MatrixXd> posterior(posterior_arr, n_events, n_states + 1);
 
-  forward_backward ( initial, trans, emissions, &posterior, n_events, permutation, true );
+  forward_backward ( initial, trans, emissions, &posterior, n_states+1, permutation, true );
 
   cerr << "posterior: " << endl << posterior << endl;
 }

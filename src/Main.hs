@@ -133,6 +133,6 @@ permutation = [0, 1, 2]
 main :: IO ()
 main = do
   posterior <- shmm n_states triples emissions permutation
-  putStrLn "Final post: "
+  putStrLn "Final post:"
   forM_ posterior $ \row ->
     print row
