@@ -109,7 +109,7 @@ shmm n_states' triples emissions permutations' summed' = do
       n_obs = fromIntegral (Vector.length (Vector.head emissions))
       n_events' = Vector.length emissions
       n_events = fromIntegral (Vector.length emissions)
-      permutations = Vector.map fromIntegral permutations'
+      permutations = (`Vector.snoc` (fromIntegral n_obs)) $ Vector.map fromIntegral permutations'
       summed = fromIntegral $ if summed' then 1 else 0
 
       --not ideal - where is best to add the 0s?
@@ -122,7 +122,7 @@ shmm n_states' triples emissions permutations' summed' = do
 
   -- call the C++ function, with temporary Ptrs to avoid a space leak
   withTripleArray triples $ \tsPtr ->
-    withEmissions emissions' $ \esPtr ->
+    withDoubleVector (Vector.toList emissions') $ \esPtr ->
       Storable.unsafeWith (Storable.convert permutations) $ \permPtr ->
         Mutable.unsafeWith post $ \postPtr ->
           c_shmm n_triples tsPtr n_states n_obs esPtr n_events permPtr summed postPtr
@@ -163,3 +163,12 @@ withEmissions emissions action = do
   ptrVec <- Vector.mapM (flip Storable.unsafeWith return . Storable.convert) emissions
   let storablePtrVec = Storable.convert ptrVec
   Storable.unsafeWith storablePtrVec action
+
+withDoubleVector :: (Storable a) => [Vector a] -> (Ptr (Ptr a) -> IO b) -> IO b
+withDoubleVector vs action = withDoubleVector' action vs []
+
+withDoubleVector' :: (Storable a) => (Ptr (Ptr a) -> IO b) -> [Vector a] -> [Ptr a] -> IO b
+withDoubleVector' action [] sofar = Storable.unsafeWith (Storable.fromList . reverse $ sofar) action
+withDoubleVector' action (row:rest) sofar =
+  Storable.unsafeWith (Storable.convert row) $ \rowPtr ->
+                                                 withDoubleVector' action rest (rowPtr : sofar)

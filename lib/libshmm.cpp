@@ -35,21 +35,48 @@ struct DTriple {
 
 void addTriples(int n_triples, DTriple *triples, SparseMatrix<double> *trans, SparseVector<double> *initial);
 
+bool verbose = false;
+
 int shmm(int n_triples, DTriple *triples,
          int n_states, int n_obs, double **emissions_aptr,
          int n_events, int *permutation,
          bool sum,
          double *posterior_arr ) {
-  cerr << "params: " << "n_triples=" << n_triples << ", n_states=" << n_states << ", n_obs=" << n_obs << ", n_events=" << n_events << endl;
+  if (verbose) {
+    cerr << "params: " << "n_triples=" << n_triples << ", n_states=" << n_states << ", n_obs=" << n_obs << ", n_events=" << n_events << endl;
+
+    cerr.precision(17);
+    double triple_val_hash = 0.0;
+    for (int i = 0; i < n_triples; i++) {
+      triple_val_hash += triples[i].val;
+    }
+    cerr << "triples hash: " << triple_val_hash << endl;
+
+    double permutation_hash = 0.0;
+    for (int i = 0; i < n_states; i++) {
+      permutation_hash += permutation[i];
+    }
+    cerr << "permutation hash: " << permutation_hash << endl;
+
+    double emissions_hash = 0.0;
+    for (int r = 0; r < n_events; r++) {
+      for (int c = 0; c < n_obs+1; c++) {
+        emissions_hash += emissions_aptr[r][c];
+      }
+    }
+    cerr << "emissions hash: " << emissions_hash << endl;
+  }
   SparseMatrix<double> trans(n_states+1, n_states+1);
   SparseVector<double> initial(n_states+1);
   addTriples(n_triples, triples, &trans, &initial);
 
-  cerr << "trans(" << trans.rows() << ", " << trans.cols() << "):" << endl;
-  for (int i = 0; i < trans.rows(); i++)
-    cerr << " " << trans.row(i);
-  cerr << "init: " << initial;
-  cerr << "permutation: " << permutation[0] << permutation[1] << permutation[2] << endl;
+  if (verbose) {
+    cerr << "trans(" << trans.rows() << ", " << trans.cols() << "):" << endl;
+    for (int i = 0; i < trans.rows(); i++)
+      cerr << " " << trans.row(i);
+    cerr << "init: " << initial;
+    cerr << "permutation: " << permutation[0] << permutation[1] << permutation[2] << endl;
+  }
 
   const char* emissions_filepath = "test/emissions.csv";
   //std::vector<int> permutation;
@@ -67,15 +94,19 @@ int shmm(int n_triples, DTriple *triples,
   emissions.push_back(end_emissions);
 
   if (sum) {
+    for (int i = 0; i < n_states + 1; i++) {
+      posterior_arr[i] = 0;
+    }
     Map<VectorXd> posteriorSummed(posterior_arr, n_states + 1);
-    forward_backward ( initial, trans, emissions, NULL, &posteriorSummed, n_states+1, permutation, true );
-    cerr << "posterior: " << endl << posteriorSummed << endl;
+    forward_backward ( initial, trans, emissions, NULL, &posteriorSummed, n_states+1, permutation, verbose );
+    if (verbose)
+      cerr << "posterior: " << endl << posteriorSummed << endl;
   } else {
     Map<MatrixXd> posteriorFull(posterior_arr, n_events, n_states + 1);
-    forward_backward ( initial, trans, emissions, &posteriorFull, NULL, n_states+1, permutation, true );
-    cerr << "posterior: " << endl << posteriorFull << endl;
+    forward_backward ( initial, trans, emissions, &posteriorFull, NULL, n_states+1, permutation, verbose );
+    if (verbose)
+      cerr << "posterior: " << endl << posteriorFull << endl;
   }
-
 }
 
 // this could definitely be done better.
@@ -107,8 +138,6 @@ void addTriples(int n_triples, DTriple *triples, SparseMatrix<double> *trans, Sp
 
   cerr << "max_row" << max_row << "max_col" << max_col << endl;
   assert(max_row + 1 == max_col);
-
-  int n_states = max_col + 1;
 
   trans_list.push_back(T(max_row+1, max_col, 1.0));
   trans->setFromTriplets(trans_list.begin(), trans_list.end());
@@ -168,23 +197,23 @@ void forward_backward ( SparseVector<double> initial,
 
   VectorXd row;
   SparseVector<double> backward = MatrixXd::Ones(n_states,1).col(0).sparseView();
-  for (int i = n_events - 1; i >= 0; i --) {
+  for (int i = n_events - 1; i > 0; i --) {
     for (SparseVector<double>::InnerIterator iter(backward); iter; ++iter) {
       backward.coeffRef(iter.index()) *= emissions[i][permutation[iter.index()]];
     }
     backward = trans * backward;
     backward /= backward.sum();
 
-    if(i > 0) {
-      row = forward[i].cwiseProduct(backward);
-      if (posteriorFull != NULL) {
-        posteriorFull->row(i-1) = row / row.sum();
-      }
-      else if (posteriorSummed != NULL) {
-        *posteriorSummed += row / row.sum();
-      }
+    row = forward[i].cwiseProduct(backward);
+    if (posteriorFull != NULL) {
+      posteriorFull->row(i-1) = row / row.sum();
+    }
+    else if (posteriorSummed != NULL) {
+      *posteriorSummed += row / row.sum();
     }
   }
+
+  // cerr << "summed result: " << *posteriorSummed << endl;
 
   // use -1 to avoid reporting the end token
   //for (int i = 1; i < n_events; i ++) {
