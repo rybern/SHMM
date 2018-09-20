@@ -35,7 +35,7 @@ struct DTriple {
 
 void addTriples(int n_triples, DTriple *triples, SparseMatrix<double> *trans, SparseVector<double> *initial);
 
-bool verbose = false;
+bool verbose =  false;
 
 int shmm(int n_triples, DTriple *triples,
          int n_states, int n_obs, double **emissions_aptr,
@@ -136,7 +136,9 @@ void addTriples(int n_triples, DTriple *triples, SparseMatrix<double> *trans, Sp
       max_col = c-1;
   }
 
-  cerr << "max_row" << max_row << "max_col" << max_col << endl;
+  if (verbose) {
+    cerr << "max_row" << max_row << "max_col" << max_col << endl;
+  }
   assert(max_row + 1 == max_col);
 
   trans_list.push_back(T(max_row+1, max_col, 1.0));
@@ -163,12 +165,14 @@ void forward_backward ( SparseVector<double> initial,
 
   if (verbose) {
     cerr << "initial: " << endl << initial << endl;
+    cerr << "trans * initial: " << endl << trans * initial << endl;
+    cerr << "trans.transpose() * initial: " << endl << trans.transpose() * initial << endl;
+
+    cerr << "n states: " << n_states << endl;
+
+    cerr << "n emissions[0]: " << emissions[0].size() << endl;
+    cerr << "n events: " << n_events << endl;
   }
-
-  cerr << "n states: " << n_states << endl;
-
-  cerr << "n emissions[0]: " << emissions[0].size() << endl;
-  cerr << "n events: " << n_events << endl;
 
   if (verbose) {
     cerr << "emissions: " << endl;
@@ -178,15 +182,40 @@ void forward_backward ( SparseVector<double> initial,
 
   //assert(emissions[0].size() == n_states);
 
+
+  /*
+    You've got this.
+
+    There's an index mismatch here.
+    Original lines are commented out.
+    Forward should really be using emissions[i], unless the indeces are meant to be off
+
+    The 'initial' vector has basically already has trans applied
+
+    now match up backwards correctly
+   */
+
   std::vector<SparseVector<double>> forward(n_events+1);
-  forward[0] = initial;
   SparseVector<double> fromPrev;
-  for (int i = 1; i <= n_events; i ++) {
-    fromPrev = trans.transpose() * forward[i-1];
-    for (SparseVector<double>::InnerIterator iter(fromPrev); iter; ++iter) {
-      fromPrev.coeffRef(iter.index()) *= emissions[i-1][permutation[iter.index()]];
+  for (int i = 0; i < n_events; i ++) {
+    //for (int i = 1; i <= n_events; i ++) {
+    if (i == 0) {
+      fromPrev = initial;
+    } else {
+      fromPrev = trans.transpose() * forward[i-1];
+      fromPrev.prune(0);
     }
+    if (verbose)
+      cerr << "forward 0" << fromPrev << endl;
+    for (SparseVector<double>::InnerIterator iter(fromPrev); iter; ++iter) {
+      //fromPrev.coeffRef(iter.index()) *= emissions[i-1][permutation[iter.index()]];
+      fromPrev.coeffRef(iter.index()) *= emissions[i][permutation[iter.index()]];
+    }
+    if (verbose)
+      cerr << "forward 1" << fromPrev << endl;
     forward[i] = fromPrev / fromPrev.sum();
+    if (verbose)
+      cerr << "forward 1" << forward[i] << endl;
   }
 
   if (verbose) {
@@ -195,18 +224,39 @@ void forward_backward ( SparseVector<double> initial,
       cerr << " " << forward[i];
   }
 
+  /*
+    definitely mismatching indices between forward and backward.
+    row becomes empty, so the normalization sets post to NaN
+    forward was shifted up by one, where forward[0] was useless i think
+    you got this fam
+   */
+
   VectorXd row;
   SparseVector<double> backward = MatrixXd::Ones(n_states,1).col(0).sparseView();
-  for (int i = n_events - 1; i > 0; i --) {
+  for (int i = n_events - 2; i >= 0; i --) {
+    if (verbose)
+      cerr << "backward 0" << backward << endl;
     for (SparseVector<double>::InnerIterator iter(backward); iter; ++iter) {
-      backward.coeffRef(iter.index()) *= emissions[i][permutation[iter.index()]];
+      backward.coeffRef(iter.index()) *= emissions[i + 1][permutation[iter.index()]];
     }
+    if (verbose)
+      cerr << "backward 1" << backward << endl;
     backward = trans * backward;
+    // maybe this should only be done after the first step?
+    backward.prune(0);
+    if (verbose)
+      cerr << "backward 2" << backward << endl;
     backward /= backward.sum();
+    if (verbose)
+      cerr << "backward 3" << backward << endl;
 
     row = forward[i].cwiseProduct(backward);
+    if (verbose)
+      cerr << "row" << row << endl;
     if (posteriorFull != NULL) {
-      posteriorFull->row(i-1) = row / row.sum();
+      posteriorFull->row(i) = row / row.sum();
+      if (verbose)
+        cerr << "post" << posteriorFull->row(i) << endl;
     }
     else if (posteriorSummed != NULL) {
       *posteriorSummed += row / row.sum();

@@ -2,8 +2,10 @@
 module SHMM
   ( shmmSummed
   , shmmFull
+  , shmmSummedUnsafe
+  , shmmFullUnsafe
   , shmm
-  , Emissions (..)
+  , VecMat (..)
   ) where
 
 import Control.Monad
@@ -14,6 +16,7 @@ import Data.Vector (Vector)
 import qualified Data.Vector as Vector
 import qualified Data.Vector.Storable as Storable
 import qualified Data.Vector.Storable.Mutable as Mutable
+import System.IO.Unsafe
 
 {-
 to do:
@@ -22,7 +25,7 @@ to do:
     * then you can inline the permutation
   - figure out emissions manipulation
     * since emissions will only be read in once, you could have one function early on do all the conversions and leave it as a ((Ptr (Ptr Double) -> IO b) -> IO b, Int, Int)
-    * or, just split out the vanilla Emissions -> Emissions and hope it's called once
+    * or, just split out the vanilla VecMat -> VecMat and hope it's called once
     * or, add it when reading it in from disk and add it to the spec
     * or, eat the cost of adding it on each call
   - figure out the posterior transposition. issue because posterior is (currently dense) states X events
@@ -35,6 +38,10 @@ to do:
   - general todo: investigate truncating 0s. that might be a vital knob.
 -}
 
+shmmSummedUnsafe :: Int -> [(Int, Int, Double)] -> VecMat -> Vector Int -> Vector Double
+shmmSummedUnsafe n_states' triples emissions permutations' =
+  unsafePerformIO $ shmmSummed n_states' triples emissions permutations'
+
 shmmSummed ::
   -- The number of states, not including tokens
   Int ->
@@ -44,7 +51,7 @@ shmmSummed ::
   [(Int, Int, Double)] ->
   -- Vector of observation distributions, one for each time point.
   -- Each distribution is n_obs long, which can be less than n_states.
-  Emissions ->
+  VecMat ->
   -- Vector to encode the permutation of states -> obervations.
   -- n_states long with values 0 through n_obs-1.
   Vector Int ->
@@ -54,6 +61,10 @@ shmmSummed ::
 shmmSummed n_states' triples emissions permutations' = do
   postFrozen <- shmm n_states' triples emissions permutations' True
   return . Vector.init . Vector.convert $ postFrozen
+
+shmmFullUnsafe :: Int -> [(Int, Int, Double)] -> VecMat -> Vector Int -> VecMat
+shmmFullUnsafe n_states' triples emissions permutations' =
+  unsafePerformIO $ shmmFull n_states' triples emissions permutations'
 
 
 shmmFull ::
@@ -65,13 +76,13 @@ shmmFull ::
   [(Int, Int, Double)] ->
   -- Vector of observation distributions, one for each time point.
   -- Each distribution is n_obs long, which can be less than n_states.
-  Emissions ->
+  VecMat ->
   -- Vector to encode the permutation of states -> obervations.
   -- n_states long with values 0 through n_obs-1.
   Vector Int ->
   -- Returns a vector of posterior distributions over states, one for each event.
   -- n_events vectors of n_states each.
-  IO Emissions
+  IO VecMat
 shmmFull n_states' triples emissions permutations' = do
   let n_events' = Vector.length emissions
   -- post is a contiguous mutable vector, convert it to an immutable 2D vector
@@ -94,7 +105,7 @@ shmm ::
   [(Int, Int, Double)] ->
   -- Vector of observation distributions, one for each time point.
   -- Each distribution is n_obs long, which can be less than n_states.
-  Emissions ->
+  VecMat ->
   -- Vector to encode the permutation of states -> obervations.
   -- n_states long with values 0 through n_obs-1.
   Vector Int ->
@@ -137,7 +148,7 @@ foreign import ccall "_Z4shmmiP7DTripleiiPPdiPibS1_"
   c_shmm :: CInt -> Ptr DTriple -> CInt -> CInt -> Ptr (Ptr Double) -> CInt -> Ptr CInt -> CUChar -> Ptr Double -> IO CInt
 
 data DTriple = DTriple CInt CInt CDouble
-type Emissions = Vector (Vector Double)
+type VecMat = Vector (Vector Double)
 
 instance Storable DTriple where
   sizeOf _ = 16
@@ -158,8 +169,8 @@ buildDTriple r c v = DTriple (fromIntegral r) (fromIntegral c) (realToFrac v)
 withTripleArray :: [(Int, Int, Double)] -> (Ptr DTriple -> IO b) -> IO b
 withTripleArray triples = withArray (map (\(r,c,v) -> buildDTriple r c v) triples)
 
-withEmissions :: Emissions -> (Ptr (Ptr Double) -> IO b) -> IO b
-withEmissions emissions action = do
+withVecMat :: VecMat -> (Ptr (Ptr Double) -> IO b) -> IO b
+withVecMat emissions action = do
   ptrVec <- Vector.mapM (flip Storable.unsafeWith return . Storable.convert) emissions
   let storablePtrVec = Storable.convert ptrVec
   Storable.unsafeWith storablePtrVec action
